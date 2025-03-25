@@ -35,45 +35,33 @@ def metric(qid, label, pred):
     4. 返回正确排序对数与错误排序对数的比值
     """
     saver = {}
-    # 确保输入列表长度一致
     assert len(qid) == len(label) == len(pred)
     
-    # 按查询ID进行分组
     for q, l, p in zip(qid, label, pred):
         if q not in saver:
             saver[q] = []
         saver[q].append((l, p))
     
-    # 初始化正确排序和错误排序的计数器
-    p = 0  # 正确排序对数
-    n = 0  # 错误排序对数
+    p = 0
+    n = 0
     
-    # 遍历每个查询组
     for qid, outputs in saver.items():
-        # 比较同一查询下的每对样本
         for i in range(0, len(outputs)):
-            l1, p1 = outputs[i]  # 第一个样本的标签和预测分数
+            l1, p1 = outputs[i]
             for j in range(i + 1, len(outputs)):
-                l2, p2 = outputs[j]  # 第二个样本的标签和预测分数
+                l2, p2 = outputs[j]
                 
-                # 如果第一个样本标签大于第二个
                 if l1 > l2:
-                    # 预测分数也大于，则排序正确
                     if p1 > p2:
                         p += 1
-                    # 预测分数小于，则排序错误
                     elif p1 < p2:
                         n += 1
-                # 如果第一个样本标签小于第二个
                 elif l1 < l2:
-                    # 预测分数也小于，则排序正确
                     if p1 < p2:
                         p += 1
-                    # 预测分数大于，则排序错误
                     elif p1 > p2:
                         n += 1
     
-    # 计算指标：正确排序对数/错误排序对数，若无错误排序则返回0
     m = 1. * p / n if n > 0 else 0.0
     return m
 
@@ -92,15 +80,13 @@ def avg_inf(opt_tms):
     1. 计算相邻时间戳的差值，即每次推理所需时间
     2. 计算这些时间差的平均值
     """
-    opt_nums = len(opt_tms)  # 时间戳总数
-    opt_all_times = 0.0      # 总时间
+    opt_nums = len(opt_tms)
+    opt_all_times = 0.0
     
-    # 计算相邻时间戳的差值之和
     for i in range(1, opt_nums):
         opt_all_times += float(opt_tms[i]) - float(opt_tms[i-1])
 
-    # 计算平均时间
-    # 由于是两两相减，总数减1才是推理次数
+
     return 1.* (opt_all_times / (opt_nums-1))
 
 
@@ -120,31 +106,27 @@ def evalute(opt_list):
     3. 调用avg_inf函数计算平均推理时间
     4. 返回包含两个评估结果的字典
     """
-    opt_qids = []    # 查询ID列表
-    opt_labels = []  # 标签列表
-    opt_scores = []  # 预测分数列表
-    opt_tms = []     # 时间戳列表
+    opt_qids = []
+    opt_labels = []
+    opt_scores = []
+    opt_tms = []
     
-    # 解析每一行数据
     for line in opt_list:
         value = line.strip().split("\t")
-        opt_qids.append(int(value[0]))  # 查询ID
+        opt_qids.append(int(value[0]))
         
-        # 处理标签，若为"-"则不计入评估
         if value[1] != "-":
-            opt_labels.append(int(float(value[1])))  # 标签
-            opt_scores.append(float(value[2]))       # 预测分数
+            opt_labels.append(int(float(value[1])))
+            opt_scores.append(float(value[2]))
         else:
             opt_scores.append(value[2])
             
-        opt_tms.append(value[3])  # 时间戳
+        opt_tms.append(value[3])
     
-    # 计算排序质量指标
     opt_metric = "-"
     if len(opt_labels):
         opt_metric = metric(opt_qids, opt_labels, opt_scores)
     
-    # 构建结果字典
     result = {}
     result["metric"] = opt_metric
     result["inf_time(us)"] = avg_inf(opt_tms)
@@ -165,11 +147,9 @@ if __name__ == "__main__":
     3. 调用evalute函数进行评估
     4. 打印评估结果
     """
-    # 读取输入文件
     opt_list = []
     with open(sys.argv[1], 'r') as f:
         for line in f.readlines():
             opt_list.append(line.strip())
 
-    # 评估并打印结果
     print(evalute(opt_list))
