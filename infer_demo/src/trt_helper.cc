@@ -433,7 +433,7 @@ int TrtContext::Forward(struct sample &s) {
                                cudaMemcpyHostToDevice, cuda_stream_));
     vector<int> v_data(128);
     CUDA_CHECK(cudaMemcpyAsync(v_data.data(), device_bindings_[13], 128 * sizeof(int),
-                               cudaMemcpyHostToDevice, cuda_stream_));
+                               cudaMemcpyDeviceToHost, cuda_stream_));
     CUDA_CHECK(cudaStreamSynchronize(cuda_stream_));
 
     if (graph_created_){
