@@ -233,7 +233,16 @@ TrtHepler::~TrtHepler() {
   CUDA_CHECK(cudaStreamDestroy(cuda_stream_));
 }
 
-
+/*
+ * TrtEngine构造函数：
+ * 1. 读取模型参数文件
+ * 2. 设置设备ID
+ * 3. 初始化插件
+ * 4. 反序列化模型参数文件，创建引擎
+ * 5. 输出引擎IO张量数量
+ * @param model_param 模型参数文件路径
+ * @param dev_id 设备ID
+ */
 TrtEngine::TrtEngine(std::string model_param, int dev_id) : dev_id_(dev_id), _model_param(model_param) {
     std::ifstream t(_model_param);
     std::stringstream buffer;
@@ -250,19 +259,54 @@ TrtEngine::TrtEngine(std::string model_param, int dev_id) : dev_id_(dev_id), _mo
     cout << "getNbIOTensors: " << engine_->getNbIOTensors() << endl;
 }
 
-
+/*
+ * 计算向上取整的除法
+ * @param a 被除数
+ * @param b 除数
+ * @return 向上取整的结果
+ */
 constexpr size_t kAlignment = 128;
 constexpr int ceildiv(int a, int b){
     return (a + b - 1) / b;
 }
+
+/*
+ * 将数值按指定值对齐
+ * @param a 需要对齐的数值
+ * @param b 对齐的基准值，默认为kAlignment
+ * @return 对齐后的数值
+ */
 constexpr int AlignTo(int a, int b = kAlignment){
     return ceildiv(a, b) * b;
 }
 
-
+/*
+ * TrtContext构造函数：
+ * 1. 设置设备ID和profile索引
+ * 2. 创建CUDA流
+ * 3. 创建执行上下文
+ * 4. 设置优化配置文件
+ * 5. 计算绑定索引起始位置
+ * 6. 获取配置文件的最大维度
+ * 7. 分配设备和主机缓冲区
+ * 8. 设置绑定指针
+ * 9. 设置输入维度
+ * @param trt_engine TensorRT引擎对象
+ * @param profile_idx 配置文件索引
+ */
 std::vector<char*> TrtContext::s_device_bindings_;
 
-
+/*
+ * TrtContext推理函数：
+ * 1. 设置设备ID
+ * 2. 将CPU数据复制到主机缓冲区
+ * 3. 将主机缓冲区数据复制到设备缓冲区
+ * 4. 执行推理（使用CUDA图或直接执行）
+ * 5. 将设备缓冲区中的结果复制回主机
+ * 6. 记录时间戳
+ * @param s sample结构体
+ * @return 推理结果状态码（0表示成功）
+ */
 TrtContext::TrtContext(TrtEngine *trt_engine, int profile_idx) {
     profile_idx_ = profile_idx;
     engine_ = trt_engine->engine_;
@@ -348,6 +392,17 @@ TrtContext::TrtContext(TrtEngine *trt_engine, int profile_idx) {
     cudaStreamSynchronize(cuda_stream_);
 }
 
+/*
+ * TrtContext推理函数：
+ * 1. 设置设备ID
+ * 2. 将CPU数据复制到主机缓冲区
+ * 3. 将主机缓冲区数据复制到设备缓冲区
+ * 4. 执行推理（使用CUDA图或直接执行）
+ * 5. 将设备缓冲区中的结果复制回主机
+ * 6. 记录时间戳
+ * @param s sample结构体
+ * @return 推理结果状态码（0表示成功）
+ */
 int TrtContext::Forward(struct sample &s) {
     cudaSetDevice(dev_id_);
 
@@ -402,17 +457,38 @@ int TrtContext::Forward(struct sample &s) {
     return 0;
 }
 
+/*
+ * TrtContext析构函数：
+ * 1. 销毁CUDA流
+ * 2. 释放设备和主机缓冲区
+ */
 TrtContext::~TrtContext() {
     CUDA_CHECK(cudaStreamDestroy(cuda_stream_));
     cudaFree(d_buffer_);
     cudaFreeHost(h_buffer_);
 }
 
+/*
+ * 用指定值填充数组
+ * @param ptr 数组指针
+ * @param size 数组大小
+ * @param v 填充值
+ */
 template <class T>
 void _fill(T* ptr, int size, T v){
     for (int i = 0; i < size; i++)  ptr[i] = v;
 }
 
+/*
+ * 捕获CUDA图以加速后续推理
+ * 1. 检查图是否已创建
+ * 2. 使用虚拟数据填充所有输入
+ * 3. 执行一次初始推理
+ * 4. 开始捕获CUDA图
+ * 5. 执行推理操作
+ * 6. 结束捕获并实例化图
+ * @return 状态码（0表示成功，1表示图已创建）
+ */
 int TrtContext::CaptureCudaGraph() {
     if (graph_created_) return 1;
 

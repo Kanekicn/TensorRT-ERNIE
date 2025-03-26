@@ -29,7 +29,10 @@
 template <typename T>
 using cuda_shared_ptr = std::shared_ptr<T>;
 
-// 定义一个模板类InferDeleter, 用于管理trt内存
+/*
+ * InferDeleter结构体，用于管理TensorRT对象的资源释放
+ * 当智能指针超出作用域时，会自动调用指定的destroy方法
+ */
 struct InferDeleter {
   template <typename T>
   void operator()(T *obj) const {
@@ -39,7 +42,12 @@ struct InferDeleter {
   }
 };
 
-// 定义一个模板函数makeShared, 用于创建trt对象
+/*
+ * 创建智能指针管理TensorRT对象
+ * @param obj TensorRT对象指针
+ * @return 包含该对象的智能指针
+ * @throws 如果对象创建失败将抛出运行时异常
+ */
 template <typename T>
 std::shared_ptr<T> makeShared(T *obj) {
   if (!obj) {
@@ -48,21 +56,29 @@ std::shared_ptr<T> makeShared(T *obj) {
   return std::shared_ptr<T>(obj, InferDeleter());
 }
 
-// 定义一个模板类CudaDeleter, 用于管理cuda内存
-template <typename T>
+/*
+ * CudaDeleter结构体，用于管理CUDA内存的释放
+ * 当智能指针超出作用域时，会自动调用cudaFree释放CUDA内存
+ */template <typename T>
 struct CudaDeleter {
   void operator()(T* buf) {
     if (buf) cudaFree(buf);
   }
 };
 
-// 定义一个模板函数make_cuda_shared, 用于创建cuda对象
+/*
+ * 创建管理CUDA内存的智能指针
+ * @param ptr 要初始化的智能指针引用
+ * @param cudaMem CUDA内存指针
+ */
 template <typename T>
 void make_cuda_shared(cuda_shared_ptr<T>& ptr, void* cudaMem) {
   ptr.reset(static_cast<T*>(cudaMem), CudaDeleter<T>());
 }
 
-// 定义一个模板类TrtDestroyer, 用于管理trt内存
+/*
+ * TrtDestroyer结构体，类似InferDeleter，用于TrtUniquePtr
+ */
 struct TrtDestroyer {
   template <typename T>
   void operator()(T *obj) const {
@@ -70,11 +86,22 @@ struct TrtDestroyer {
   }
 };
 
-// 定义一个模板类TrtUniquePtr, 用于管理trt内存
+/*
+ * 创建TensorRT对象的unique_ptr智能指针
+ * @param t TensorRT对象指针
+ * @return 包含该对象的unique_ptr智能指针
+ */
 template <typename T>
 using TrtUniquePtr = std::unique_ptr<T, TrtDestroyer>;
 
-// 定义一个模板函数MakeUnique, 用于创建trt对象
+/*
+ * sample结构体，用于存储模型输入输出数据
+ * 包含：
+ * - qid和label：样本标识符和标签
+ * - 多个形状信息和输入向量（i0-i11）
+ * - 输出数据向量
+ * - 时间戳
+ */
 template <typename T>
 inline TrtUniquePtr<T> MakeUnique(T *t) {
   return TrtUniquePtr<T>{t};
@@ -125,9 +152,8 @@ struct sample{
 
 
 /*
- * 定义一个类TrtLogger, 用于管理trt日志
- * 继承自nvinfer1::ILogger
- * 重载log函数, 用于打印日志
+ * TrtLogger类，用于管理TensorRT日志
+ * 继承自nvinfer1::ILogger，重写log方法来处理不同级别的日志消息
  */
 class TrtLogger : public nvinfer1::ILogger {
   using Severity = nvinfer1::ILogger::Severity;
@@ -173,16 +199,14 @@ class TrtHepler {
   ~TrtHepler();
 
  private:
-  int _dev_id;
-  // NS_PROTO::ModelParam *_model_param_ptr;
-  std::string _model_param;
-  std::shared_ptr<nvinfer1::ICudaEngine> engine_;
-  std::shared_ptr<nvinfer1::IExecutionContext> context_;
-  cudaStream_t cuda_stream_;
+    int _dev_id;                                          // CUDA设备ID
+    std::string _model_param;                             // 模型参数文件路径
+    std::shared_ptr<nvinfer1::ICudaEngine> engine_;       // TensorRT引擎
+    std::shared_ptr<nvinfer1::IExecutionContext> context_; // 执行上下文
+    cudaStream_t cuda_stream_;                            // CUDA流
 
-  // The all dims of all inputs.
-  std::vector<nvinfer1::Dims> inputs_dims_;
-  std::vector<void*> device_bindings_;
+    std::vector<nvinfer1::Dims> inputs_dims_;             // 所有输入的维度信息
+    std::vector<void*> device_bindings_;                  // 设备内存绑定
 };
 
 
@@ -191,13 +215,16 @@ public:
     TrtEngine(std::string model_param, int dev_id);
     ~TrtEngine(){};
 
-    int dev_id_;
-    std::string _model_param;
-    std::shared_ptr<nvinfer1::ICudaEngine> engine_;
-
-    TrtLogger trt_logger;
+    int dev_id_;                                      // CUDA设备ID
+    std::string _model_param;                         // 模型参数文件路径
+    std::shared_ptr<nvinfer1::ICudaEngine> engine_;   // TensorRT引擎
+    TrtLogger trt_logger;                             // TensorRT日志记录器
 };
 
+/*
+ * TrtContext类，负责创建执行上下文并管理推理过程
+ * 支持CUDA图优化，可以加速连续的相似推理
+ */
 class TrtContext{
 public:
     TrtContext(TrtEngine* trt_engine, int profile_idx);
@@ -205,32 +232,32 @@ public:
     ~TrtContext();
     int CaptureCudaGraph();
 
-    int dev_id_;
-    std::string _model_param;
-    std::shared_ptr<nvinfer1::ICudaEngine> engine_;
-    std::shared_ptr<nvinfer1::IExecutionContext> context_;
-    cudaStream_t cuda_stream_;
+    int dev_id_;                                          // CUDA设备ID
+    std::string _model_param;                             // 模型参数文件路径
+    std::shared_ptr<nvinfer1::ICudaEngine> engine_;       // TensorRT引擎
+    std::shared_ptr<nvinfer1::IExecutionContext> context_; // 执行上下文
+    cudaStream_t cuda_stream_;                            // CUDA流
 
-    std::vector<nvinfer1::Dims> inputs_dims_;
-    std::vector<char*> device_bindings_;
-    std::vector<char*> host_bindings_;
-    static std::vector<char*> s_device_bindings_;
+    std::vector<nvinfer1::Dims> inputs_dims_;             // 所有输入的维度信息
+    std::vector<char*> device_bindings_;                  // 设备内存绑定
+    std::vector<char*> host_bindings_;                    // 主机内存绑定
+    static std::vector<char*> s_device_bindings_;         // 静态设备内存绑定
 
-    char* h_buffer_;
-    char* d_buffer_;
+    char* h_buffer_;                                      // 主机内存缓冲区
+    char* d_buffer_;                                      // 设备内存缓冲区
 
-    int max_batch_;
-    int max_seq_len_;
-    int start_binding_idx_;
-    int profile_idx_;
+    int max_batch_;                                       // 最大批量大小
+    int max_seq_len_;                                     // 最大序列长度
+    int start_binding_idx_;                               // 绑定索引起始位置
+    int profile_idx_;                                     // 优化配置文件索引
 
-    int align_input_bytes_;
-    int align_aside_intput_bytes_;
-    int whole_bytes_;
+    int align_input_bytes_;                               // 对齐的输入字节数
+    int align_aside_intput_bytes_;                        // 对齐的辅助输入字节数
+    int whole_bytes_;                                     // 总字节数
 
-    cudaGraph_t graph_;
-    cudaGraphExec_t instance_;
-    bool graph_created_ = false;
+    cudaGraph_t graph_;                                   // CUDA图
+    cudaGraphExec_t instance_;                            // CUDA图实例
+    bool graph_created_ = false;                          // 图是否已创建标志
 };
 
 

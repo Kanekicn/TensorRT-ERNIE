@@ -148,17 +148,17 @@ void line2sample(const std::string& line, sample* sout) {
 }
 
 /*
- * 主函数, 实现方式：
- * 1. 初始化trt_helper: 初始化trt_helper, 读取模型参数文件, 设置设备ID
- * 2. 读取输入文件: 打开输入文件, 读取每一行, 调用line2sample(aline, &s)将样本转换为sample结构体, 并加入sample_vec
- * 3. 读取输出文件: 打开输出文件, 准备写入推理结果
- * 4. 读取样本: 遍历输入文件, 调用line2sample(aline, &s)将样本转换为sample结构体, 并加入sample_vec
- * 5. 推理: 遍历样本, 调用trt_helper->Forward(s)
- * 6. 后处理: 遍历样本, 将推理结果写入输出文件
- * 7. 关闭文件
- * 8. 返回
+ * 主函数不使用输入优化的版本
+ * @param argc 命令行参数数量
+ * @param argv 命令行参数数组
+ * @return 状态码
+ *
+ * 实现步骤：
+ * 1. 初始化TensorRT引擎，设置推理环境
+ * 2. 读取样本文件，解析为sample结构体数组
+ * 3. 对每个样本执行推理
+ * 4. 将推理结果写入输出文件
  */
-
 int main_no_input_opt(int argc, char* argv[]){
     // 1. 初始化trt_helper: 初始化trt_helper, 读取模型参数文件, 设置设备ID
     std::string model_para_file = argv[1];
@@ -206,35 +206,60 @@ int main_no_input_opt(int argc, char* argv[]){
     return 0;
 }
 
+
+/*
+ * 主函数使用输入优化的版本（使用CUDA图技术）
+ * @param argc 命令行参数数量
+ * @param argv 命令行参数数组
+ * @return 状态码
+ *
+ * 实现步骤：
+ * 1. 检查参数数量
+ * 2. 初始化TensorRT引擎
+ * 3. 为不同的批量大小和序列长度创建多个执行上下文
+ * 4. 为每个上下文捕获CUDA图
+ * 5. 读取样本文件，解析为sample结构体数组
+ * 6. 根据样本批量大小和序列长度选择合适的上下文执行推理
+ * 7. 将推理结果写入输出文件
+ */
 int main_input_opt(int argc, char* argv[]){
+    // 检查参数数量
     if (argc != 4){
         std::cout << "Error: argc != 4" << std::endl;
         return -1;
     }
-
+    // 解析命令行参数
     int argc_idx = 1;
     std::string model_file = argv[argc_idx++];
     std::string test_file = argv[argc_idx++];
     std::string out_file = argv[argc_idx++];
 
+    // 初始化TensorRT引擎
     std::shared_ptr<TrtEngine> trt_engine(new TrtEngine(model_file, 0));
+
+    // 定义支持的批量大小和序列长度
     std::vector<int> batchs {1, 2, 3, 4, 5, 6, 7, 8, 9, 10};
     std::vector<int> seq_lens{1, 32, 64, 96, 128};
     auto context_num = batchs.size() * seq_lens.size();
 
+    // 检查优化配置文件数量
     std::cout << "trt_engine->engine_->getNbOptimizationProfiles(): " << trt_engine->engine_->getNbOptimizationProfiles()
               << ", context_num: " << context_num << std::endl;
 //    assert(trt_engine->engine_->getNbOptimizationProfiles() == context_num);
 
+    // 创建多个执行上下文
     std::vector<std::shared_ptr<TrtContext>> trt_contexts(context_num);
     for (size_t i = 0; i < context_num; i++){
         auto context = new TrtContext(trt_engine.get(), i);
         trt_contexts[i].reset(context);
     }
+
+    // 为每个上下文捕获CUDA图
     for (size_t i = 0; i < context_num; i++){
         trt_contexts[i]->CaptureCudaGraph();
     }
 
+    // 读取样本文件
     std::string aline;
     std::ifstream ifs;
     ifs.open(test_file, std::ios::in);
@@ -247,11 +272,14 @@ int main_input_opt(int argc, char* argv[]){
         sample_vec.push_back(s);
     }
 
+    // 执行推理
     int idx = 0;
     for (auto &s : sample_vec){
+        // 获取样本的批量大小和序列长度
         int batch = s.shape_info_0[0];
         int seq_len = s.shape_info_0[1];
 
+        // 选择合适的序列长度索引
         int s_idx = 0;
         for (int i = 0; i < seq_lens.size(); i++){
             if (seq_len <= seq_lens[i]){
@@ -260,14 +288,17 @@ int main_input_opt(int argc, char* argv[]){
             }
         }
 
+        // 根据批量大小和序列长度选择上下文
         auto batch_idx = batchs[batch - 1] - 1;
         int context_idx = batch_idx * seq_lens.size() + s_idx;
 
+        // 执行推理
         trt_contexts[context_idx]->Forward(s);
         ++idx;
         if (idx % 100 == 0) std::cout << "Forward: " << idx << std::endl;
     }
 
+    // 将推理结果写入输出文件
     for (auto& s : sample_vec) {
         std::ostringstream oss;
         oss << s.qid << "\t";
@@ -283,7 +314,7 @@ int main_input_opt(int argc, char* argv[]){
         oss << s.timestamp << "\n";
         ofs.write(oss.str().c_str(), oss.str().length());
     }
-    // 5. 关闭文件
+    // 关闭文件
     ofs.close();
     ifs.close();
     return 0;
