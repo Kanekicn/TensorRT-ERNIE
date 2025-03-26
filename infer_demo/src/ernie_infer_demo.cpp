@@ -158,49 +158,156 @@ void line2sample(const std::string& line, sample* sout) {
  * 7. 关闭文件
  * 8. 返回
  */
-int main(int argc, char *argv[]) {
-  // 1. 初始化trt_helper: 初始化trt_helper, 读取模型参数文件, 设置设备ID    
-  std::string model_para_file = argv[1];
-  std::cout << model_para_file << std::endl;
-  auto trt_helper = new TrtHepler(model_para_file, 0);
-  // 2. 读取输入文件: 打开输入文件, 读取每一行, 
-  // 调用line2sample(aline, &s)将样本转换为sample结构体, 并加入sample_vec
-  std::string aline;
-  std::ifstream ifs;
-  ifs.open(argv[2], std::ios::in);
-  std::ofstream ofs;
-  ofs.open(argv[3], std::ios::out);
-  std::vector<sample> sample_vec;
-  while (std::getline(ifs, aline)) {
-      sample s;
-      line2sample(aline, &s);
-      sample_vec.push_back(s);
-  }
 
-  // 3. 推理: 遍历样本, 调用trt_helper->Forward(s)
-  for (auto& s : sample_vec) {
-      // //run(predictor.get(), s);
-      trt_helper->Forward(s);
-  }
+int main_no_input_opt(int argc, char* argv[]){
+    // 1. 初始化trt_helper: 初始化trt_helper, 读取模型参数文件, 设置设备ID
+    std::string model_para_file = argv[1];
+    std::cout << model_para_file << std::endl;
+    auto trt_helper = new TrtHepler(model_para_file, 0);
+    // 2. 读取输入文件: 打开输入文件, 读取每一行,
+    // 调用line2sample(aline, &s)将样本转换为sample结构体, 并加入sample_vec
+    std::string aline;
+    std::ifstream ifs;
+    ifs.open(argv[2], std::ios::in);
+    std::ofstream ofs;
+    ofs.open(argv[3], std::ios::out);
+    std::vector<sample> sample_vec;
+    while (std::getline(ifs, aline)) {
+        sample s;
+        line2sample(aline, &s);
+        sample_vec.push_back(s);
+    }
 
-  // 4. 后处理: 遍历样本, 将推理结果写入输出文件
-  for (auto& s : sample_vec) {
-      std::ostringstream oss;
-      oss << s.qid << "\t";
-      oss << s.label << "\t";
-      for (int i = 0; i < s.out_data.size(); ++i) {
-          oss << s.out_data[i];
-          if (i == s.out_data.size() - 1) {
-              oss << "\t";
-          } else {
-              oss << ",";
-          }
-      }
-      oss << s.timestamp << "\n";
-      ofs.write(oss.str().c_str(), oss.str().length());
-  }
-  // 5. 关闭文件
-  ofs.close();
-  ifs.close();
-  return 0;
+    // 3. 推理: 遍历样本, 调用trt_helper->Forward(s)
+    for (auto& s : sample_vec) {
+        // //run(predictor.get(), s);
+        trt_helper->Forward(s);
+    }
+
+    // 4. 后处理: 遍历样本, 将推理结果写入输出文件
+    for (auto& s : sample_vec) {
+        std::ostringstream oss;
+        oss << s.qid << "\t";
+        oss << s.label << "\t";
+        for (int i = 0; i < s.out_data.size(); ++i) {
+            oss << s.out_data[i];
+            if (i == s.out_data.size() - 1) {
+                oss << "\t";
+            } else {
+                oss << ",";
+            }
+        }
+        oss << s.timestamp << "\n";
+        ofs.write(oss.str().c_str(), oss.str().length());
+    }
+    // 5. 关闭文件
+    ofs.close();
+    ifs.close();
+    return 0;
 }
+
+int main_input_opt(int argc, char* argv[]){
+    if (argc != 4){
+        std::cout << "Error: argc != 4" << std::endl;
+        return -1;
+    }
+
+    int argc_idx = 1;
+    std::string model_file = argv[argc_idx++];
+    std::string test_file = argv[argc_idx++];
+    std::string out_file = argv[argc_idx++];
+
+    std::shared_ptr<TrtEngine> trt_engine(new TrtEngine(model_file, 0));
+    std::vector<int> batchs {1, 2, 3, 4, 5, 6, 7, 8, 9, 10};
+    std::vector<int> seq_lens{1, 32, 64, 96, 128};
+    auto context_num = batchs.size() * seq_lens.size();
+
+    std::cout << "trt_engine->engine_->getNbOptimizationProfiles(): " << trt_engine->engine_->getNbOptimizationProfiles()
+              << ", context_num: " << context_num << std::endl;
+//    assert(trt_engine->engine_->getNbOptimizationProfiles() == context_num);
+
+    std::vector<std::shared_ptr<TrtContext>> trt_contexts(context_num);
+    for (size_t i = 0; i < context_num; i++){
+        auto context = new TrtContext(trt_engine.get(), i);
+        trt_contexts[i].reset(context);
+    }
+    for (size_t i = 0; i < context_num; i++){
+        trt_contexts[i]->CaptureCudaGraph();
+    }
+
+    std::string aline;
+    std::ifstream ifs;
+    ifs.open(test_file, std::ios::in);
+    std::ofstream ofs;
+    ofs.open(out_file, std::ios::out);
+    std::vector<sample> sample_vec;
+    while (std::getline(ifs, aline)) {
+        sample s;
+        line2sample(aline, &s);
+        sample_vec.push_back(s);
+    }
+
+    int idx = 0;
+    for (auto &s : sample_vec){
+        int batch = s.shape_info_0[0];
+        int seq_len = s.shape_info_0[1];
+
+        int s_idx = 0;
+        for (int i = 0; i < seq_lens.size(); i++){
+            if (seq_len <= seq_lens[i]){
+                s_idx = i;
+                break;
+            }
+        }
+
+        auto batch_idx = batchs[batch - 1] - 1;
+        int context_idx = batch_idx * seq_lens.size() + s_idx;
+
+        trt_contexts[context_idx]->Forward(s);
+        ++idx;
+        if (idx % 100 == 0) std::cout << "Forward: " << idx << std::endl;
+    }
+
+    for (auto& s : sample_vec) {
+        std::ostringstream oss;
+        oss << s.qid << "\t";
+        oss << s.label << "\t";
+        for (int i = 0; i < s.out_data.size(); ++i) {
+            oss << s.out_data[i];
+            if (i == s.out_data.size() - 1) {
+                oss << "\t";
+            } else {
+                oss << ",";
+            }
+        }
+        oss << s.timestamp << "\n";
+        ofs.write(oss.str().c_str(), oss.str().length());
+    }
+    // 5. 关闭文件
+    ofs.close();
+    ifs.close();
+    return 0;
+}
+
+
+int main(int argc, char *argv[]) {
+    main_input_opt(argc, argv);
+    return 0;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

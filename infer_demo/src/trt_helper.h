@@ -180,6 +180,55 @@ class TrtHepler {
   std::vector<void*> device_bindings_;
 };
 
+
+class TrtEngine{
+public:
+    TrtEngine(std::string model_param, int dev_id);
+    ~TrtEngine(){};
+
+    int dev_id_;
+    std::string _model_param;
+    std::shared_ptr<nvinfer1::ICudaEngine> engine_;
+
+    TrtLogger trt_logger;
+};
+
+class TrtContext{
+public:
+    TrtContext(TrtEngine* trt_engine, int profile_idx);
+    int Forward(struct sample& s);
+    ~TrtContext();
+    int CaptureCudaGraph();
+
+    int dev_id_;
+    std::string _model_param;
+    std::shared_ptr<nvinfer1::ICudaEngine> engine_;
+    std::shared_ptr<nvinfer1::IExecutionContext> context_;
+    cudaStream_t cuda_stream_;
+
+    std::vector<nvinfer1::Dims> inputs_dims_;
+    std::vector<char*> device_bindings_;
+    std::vector<char*> host_bindings_;
+    static std::vector<char*> s_device_bindings_;
+
+    char* h_buffer_;
+    char* d_buffer_;
+
+    int max_batch_;
+    int max_seq_len_;
+    int start_binding_idx_;
+    int profile_idx_;
+
+    int align_input_bytes_;
+    int align_aside_intput_bytes_;
+    int whole_bytes_;
+
+    cudaGraph_t graph_;
+    cudaGraphExec_t instance_;
+    bool graph_created_ = false;
+};
+
+
 // } // BEGIN_LIB_NAMESPACE
 
 #endif // TRT_HEPLER_

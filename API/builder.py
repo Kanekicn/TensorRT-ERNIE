@@ -604,33 +604,56 @@ def build_engine(args, config, weights_dict, calibrationCacheFile):
         # 标记输出
         network_helper.markOutput(out)
 
-        # 创建优化配置文件
-        profile = builder.create_optimization_profile()
-        
-        # 设置主要输入的形状范围
-        min_shape = (1, 128, 1)
-        opt_shape = (5, 128, 1)
-        max_shape = (10, 128, 1)
-        profile.set_shape("src_ids", min=min_shape, opt=opt_shape, max=max_shape)
-        profile.set_shape("sent_ids", min=min_shape, opt=opt_shape, max=max_shape)
-        profile.set_shape("pos_ids", min=min_shape, opt=opt_shape, max=max_shape)
-        profile.set_shape("input_mask", min=min_shape, opt=opt_shape, max=max_shape)
+        if args.cuda_graph:
+            batchs = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+            seq_lens = [1, 32, 64, 96, 128]
+            for b in batchs:
+                for s in seq_lens:
+                    profile = builder.create_optimization_profile()
+                    static_shape = (b, s, 1)
+                    profile.set_shape("src_ids", min=static_shape, opt=static_shape, max=static_shape)
+                    profile.set_shape("sent_ids", min=static_shape, opt=static_shape, max=static_shape)
+                    profile.set_shape("pos_ids", min=static_shape, opt=static_shape, max=static_shape)
+                    profile.set_shape("input_mask", min=static_shape, opt=static_shape, max=static_shape)
 
-        # 设置辅助输入的形状范围
-        min_shape = (1, 1, 1)
-        opt_shape = (5, 1, 1)
-        max_shape = (10, 1, 1)
-        profile.set_shape("tmp6", min=min_shape, opt=opt_shape, max=max_shape)
-        profile.set_shape("tmp7", min=min_shape, opt=opt_shape, max=max_shape)
-        profile.set_shape("tmp8", min=min_shape, opt=opt_shape, max=max_shape)
-        profile.set_shape("tmp9", min=min_shape, opt=opt_shape, max=max_shape)
-        profile.set_shape("tmp10", min=min_shape, opt=opt_shape, max=max_shape)
-        profile.set_shape("tmp11", min=min_shape, opt=opt_shape, max=max_shape)
-        profile.set_shape("tmp12", min=min_shape, opt=opt_shape, max=max_shape)
-        profile.set_shape("tmp13", min=min_shape, opt=opt_shape, max=max_shape)
-        
-        # 添加优化配置文件
-        builder_config.add_optimization_profile(profile)
+                    static_shape = (b, 1, 1)
+                    profile.set_shape("tmp6", min=static_shape, opt=static_shape, max=static_shape)
+                    profile.set_shape("tmp7", min=static_shape, opt=static_shape, max=static_shape)
+                    profile.set_shape("tmp8", min=static_shape, opt=static_shape, max=static_shape)
+                    profile.set_shape("tmp9", min=static_shape, opt=static_shape, max=static_shape)
+                    profile.set_shape("tmp10", min=static_shape, opt=static_shape, max=static_shape)
+                    profile.set_shape("tmp11", min=static_shape, opt=static_shape, max=static_shape)
+                    profile.set_shape("tmp12", min=static_shape, opt=static_shape, max=static_shape)
+                    profile.set_shape("tmp13", min=static_shape, opt=static_shape, max=static_shape)
+                    builder_config.add_optimization_profile(profile)
+                else:
+                    # 创建优化配置文件
+                    profile = builder.create_optimization_profile()
+
+                    # 设置主要输入的形状范围
+                    min_shape = (1, 128, 1)
+                    opt_shape = (5, 128, 1)
+                    max_shape = (10, 128, 1)
+                    profile.set_shape("src_ids", min=min_shape, opt=opt_shape, max=max_shape)
+                    profile.set_shape("sent_ids", min=min_shape, opt=opt_shape, max=max_shape)
+                    profile.set_shape("pos_ids", min=min_shape, opt=opt_shape, max=max_shape)
+                    profile.set_shape("input_mask", min=min_shape, opt=opt_shape, max=max_shape)
+
+                    # 设置辅助输入的形状范围
+                    min_shape = (1, 1, 1)
+                    opt_shape = (5, 1, 1)
+                    max_shape = (10, 1, 1)
+                    profile.set_shape("tmp6", min=min_shape, opt=opt_shape, max=max_shape)
+                    profile.set_shape("tmp7", min=min_shape, opt=opt_shape, max=max_shape)
+                    profile.set_shape("tmp8", min=min_shape, opt=opt_shape, max=max_shape)
+                    profile.set_shape("tmp9", min=min_shape, opt=opt_shape, max=max_shape)
+                    profile.set_shape("tmp10", min=min_shape, opt=opt_shape, max=max_shape)
+                    profile.set_shape("tmp11", min=min_shape, opt=opt_shape, max=max_shape)
+                    profile.set_shape("tmp12", min=min_shape, opt=opt_shape, max=max_shape)
+                    profile.set_shape("tmp13", min=min_shape, opt=opt_shape, max=max_shape)
+
+                    # 添加优化配置文件
+                    builder_config.add_optimization_profile(profile)
 
         # 构建引擎并计时
         build_start_time = time.time()
@@ -701,7 +724,7 @@ def main():
     parser.add_argument("-f", "--fp16", action="store_true", help="Indicates that inference should be run in FP16 precision", required=False)
     parser.add_argument("-t", "--strict", action="store_true", help="Indicates that inference should be run in strict precision mode", required=False)
     parser.add_argument("-w", "--workspace-size", default=3000, help="Workspace size in MiB for building the BERT engine", type=int)
-    parser.add_argument("-c", "--cuda_graph", action="store_true", help="Indicates that inference should be run with CUDA Graph", required=False)
+    parser.add_argument("-g", "--cuda_graph", action="store_true", help="Indicates that inference should be run with CUDA Graph", required=False)
     # parser.add_argument("-n", "--calib-num", help="calibration cache path", required=False)
 
     # 解析命令行参数
@@ -730,36 +753,6 @@ def main():
     # if args.img_path is not None:
     #     infer_helper = InferHelper(args.output, TRT_LOGGER)
     #     test_case_data(infer_helper, args, args.img_path)
-
-    # work3: 合并输入与CUDA Graph
-    if args.cuda_graph:
-        # 为不同的输入长度创建多个profile
-        batches=[1,2,3,4,5,6,7,8,9,10]
-        seq_lens=[1,32,64,96,128]
-        
-        # 根据需要调整，这里只选取部分配置示例
-        batches = [1]  
-        seq_lens=[64, 128]
-        
-        for b in batches:
-            for s in seq_lens:
-                # 为每种输入大小创建一个优化配置
-                profile = builder.create_optimization_profile()
-                static_shape = (b, s)
-                
-                # 为所有输入设置形状范围
-                profile.set_shape("src_ids", min=static_shape, 
-                                  opt=static_shape, max=static_shape)
-                profile.set_shape("sent_ids", min=static_shape, 
-                                  opt=static_shape, max=static_shape)
-                profile.set_shape("pos_ids", min=static_shape, 
-                                  opt=static_shape, max=static_shape)
-                profile.set_shape("input_mask", min=static_shape, 
-                                  opt=static_shape, max=static_shape)
-                # ... 设置其他输入 ...
-                
-                # 添加配置到构建器
-                config.add_optimization_profile(profile)
 
 if __name__ == "__main__":
     main()
