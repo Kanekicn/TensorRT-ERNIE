@@ -14,11 +14,16 @@
 #include <cuda_runtime.h>
 
 #ifndef CUDA_CHECK
-#  define CUDA_CHECK(status)                                                      \
-    if (status != cudaSuccess) {                                                  \
-      std::cout << "Cuda failure! Error=" << cudaGetErrorString(status) << std::endl; \
-    }
+#define CUDA_CHECK(status)                                                      \
+    do {                                                                        \
+        cudaError_t err = status;                                               \
+        if (err != cudaSuccess) {                                               \
+            std::cerr << "[CUDA ERROR] " << cudaGetErrorString(err)            \
+                      << " at " << __FILE__ << ":" << __LINE__ << std::endl;   \
+        }                                                                       \
+    } while (0)
 #endif
+
 
 // 定义一个模板类cuda_shared_ptr, 用于管理cuda内存
 template <typename T>

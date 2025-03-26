@@ -1,2 +1,4 @@
 ernie_infer_demo
 *.txt
+*.vscode/*
+*cmake*

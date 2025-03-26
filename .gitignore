@@ -39,3 +39,4 @@ trt_models
 
 *.idea
 .DS_Store
+*.vscode/

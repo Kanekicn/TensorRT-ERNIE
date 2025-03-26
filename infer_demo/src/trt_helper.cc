@@ -457,12 +457,5 @@ int TrtContext::CaptureCudaGraph() {
     return 0;
 }
 
-
-
-
-
-
-
-
 // } // BEGIN_LIB_NAMESPACE
 
