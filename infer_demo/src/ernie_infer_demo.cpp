@@ -1,7 +1,7 @@
 #include <sys/time.h>
-#include <stdio.h>
-#include <assert.h>
-#include <stdint.h>
+#include <cstdio>
+#include <cassert>
+#include <cstdint>
 #include <chrono>
 #include <iostream>
 #include <memory>
@@ -96,7 +96,7 @@ void field2vec(const std::string& input_str,
 }
 
 /**
- * 将输入字符串转换为sample结构体, 实现方式：   
+ * 将输入字符串转换为sample结构体, 实现方式：
  * 1. 将输入字符串按;分割成14个字段
  * 2. 将第0个字段按:分割成qid和qid_len
  * 3. 将第1个字段按:分割成label和label_len

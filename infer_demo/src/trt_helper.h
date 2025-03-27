@@ -4,7 +4,7 @@
 #include <sys/time.h>
 #include <vector>
 #include <string>
-#include <string.h>
+#include <cstring>
 #include <memory>
 #include <cassert>
 #include <iostream>
@@ -210,15 +210,15 @@ class TrtHepler {
 };
 
 
-class TrtEngine{
+class TrtEngine {
 public:
     TrtEngine(std::string model_param, int dev_id);
-    ~TrtEngine(){};
+    ~TrtEngine() {};
 
-    int dev_id_;                                      // CUDA设备ID
-    std::string _model_param;                         // 模型参数文件路径
-    std::shared_ptr<nvinfer1::ICudaEngine> engine_;   // TensorRT引擎
-    TrtLogger trt_logger;                             // TensorRT日志记录器
+    int dev_id_;                                      // 当前使用的 GPU 设备 ID
+    std::string _model_param;                         // 序列化的 TensorRT 引擎文件路径
+    std::shared_ptr<nvinfer1::ICudaEngine> engine_;   // TensorRT 引擎对象
+    TrtLogger trt_logger;                             // TensorRT 日志对象
 };
 
 /*

@@ -1,9 +1,10 @@
 #include "trt_helper.h"
 
-#include <string>
+#include <string.h>
+#include <cstdio>
 #include <fstream>
 #include <sstream>
-
+#include <cuda_runtime.h>
 #include "NvInferPlugin.h"
 
 using namespace std;
@@ -244,14 +245,19 @@ TrtHepler::~TrtHepler() {
  * @param dev_id 设备ID
  */
 TrtEngine::TrtEngine(std::string model_param, int dev_id) : dev_id_(dev_id), _model_param(model_param) {
+    // 1. 读取模型参数文件
     std::ifstream t(_model_param);
     std::stringstream buffer;
     buffer << t.rdbuf();
     std::string contents(buffer.str());
 
+    // 2. 设置设备ID
     CUDA_CHECK(cudaSetDevice(dev_id));
 
+    // 3. 初始化 TensorRT 插件库
     initLibNvInferPlugins(&trt_logger.getTRTLogger(), "");
+
+    // 4. 反序列化模型参数文件，创建引擎
     auto runtime = MakeUnique(nvinfer1::createInferRuntime(trt_logger.getTRTLogger()));
     auto e = runtime->deserializeCudaEngine((void*)contents.c_str(), contents.size(), nullptr);
     engine_ = MakeShared(e);
@@ -280,6 +286,9 @@ constexpr int AlignTo(int a, int b = kAlignment){
     return ceildiv(a, b) * b;
 }
 
+
+std::vector<char*> TrtContext::s_device_bindings_;
+
 /*
  * TrtContext构造函数：
  * 1. 设置设备ID和profile索引
@@ -294,33 +303,28 @@ constexpr int AlignTo(int a, int b = kAlignment){
  * @param trt_engine TensorRT引擎对象
  * @param profile_idx 配置文件索引
  */
-std::vector<char*> TrtContext::s_device_bindings_;
-
-/*
- * TrtContext推理函数：
- * 1. 设置设备ID
- * 2. 将CPU数据复制到主机缓冲区
- * 3. 将主机缓冲区数据复制到设备缓冲区
- * 4. 执行推理（使用CUDA图或直接执行）
- * 5. 将设备缓冲区中的结果复制回主机
- * 6. 记录时间戳
- * @param s sample结构体
- * @return 推理结果状态码（0表示成功）
- */
 TrtContext::TrtContext(TrtEngine *trt_engine, int profile_idx) {
+    // 1. 设置设备ID和profile索引
     profile_idx_ = profile_idx;
     engine_ = trt_engine->engine_;
     dev_id_ = trt_engine->dev_id_;
+    // 2. 创建CUDA流
     CUDA_CHECK(cudaSetDevice(dev_id_));
     CUDA_CHECK(cudaStreamCreate(&cuda_stream_));
 
+    // 3. 创建执行上下文
     context_ = MakeShared(engine_->createExecutionContext());
+    //  4. 设置优化配置文件
     context_->setOptimizationProfile(profile_idx);
 
+    // 5. 计算绑定索引起始位置
     start_binding_idx_ = profile_idx * engine_->getNbBindings() / engine_->getNbOptimizationProfiles();
+
+    // 6. 获取配置文件的最大维度
     auto max_profile = engine_->getProfileDimensions(
             start_binding_idx_, profile_idx, nvinfer1::OptProfileSelector::kMAX);
 
+    // 7. 分配设备和主机缓冲区
     // 4 input: [B, S], 8 aside inputs and 1 output: [B]
     max_batch_ = max_profile.d[0];
     max_seq_len_ = max_profile.d[1];
@@ -359,6 +363,7 @@ TrtContext::TrtContext(TrtEngine *trt_engine, int profile_idx) {
         ++b_i;
     }
 
+    // 9. 设置输入维度
     vector<int> input_dim = {max_batch_, max_seq_len_, 1};
     vector<int> aside_input_dim = {max_batch_, 1, 1};
 
@@ -429,6 +434,7 @@ int TrtContext::Forward(struct sample &s) {
 
     cudaEvent_t start, stop;
     float elapsed_time = 0.0;
+    // 将主机缓冲区数据复制到设备缓冲区,除最后一个aside，预留空间
     CUDA_CHECK(cudaMemcpyAsync(d_buffer_, h_buffer_, whole_bytes_ - align_aside_intput_bytes_,
                                cudaMemcpyHostToDevice, cuda_stream_));
     vector<int> v_data(128);
@@ -436,6 +442,7 @@ int TrtContext::Forward(struct sample &s) {
                                cudaMemcpyDeviceToHost, cuda_stream_));
     CUDA_CHECK(cudaStreamSynchronize(cuda_stream_));
 
+    // 执行推理（使用CUDA图或直接执行）
     if (graph_created_){
         CUDA_CHECK(cudaGraphLaunch(instance_, cuda_stream_));
     }else{
@@ -446,6 +453,7 @@ int TrtContext::Forward(struct sample &s) {
         }
     }
 
+    // 将设备缓冲区中的结果复制回主机
     s.out_data.resize(batch);
     CUDA_CHECK(cudaMemcpyAsync(s.out_data.data(), device_bindings_[start_binding_idx_ + 12], batch * sizeof(float ),
                                cudaMemcpyDeviceToHost, cuda_stream_));
